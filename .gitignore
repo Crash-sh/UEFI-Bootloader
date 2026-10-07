@@ -57,3 +57,8 @@ dkms.conf
 
 # Build/ dir
 build/
+REF.md
+
+# editor formatting
+.clang-format
+.editorconfig
