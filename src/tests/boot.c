@@ -364,8 +364,8 @@ int main(int argc, char **argv)
         {"child error",
          "error.efi",
          {"NEUROS: test child reached", "StartImage: Aborted", "[Enter] Retry Arch"}},
-        {"missing UKI", NULL, {"LoadImage: Not Found", "[Enter] Retry Arch", NULL}},
-        {"invalid UKI", NULL, {"LoadImage:", "[Enter] Retry Arch", NULL}}};
+        {"missing UKI", NULL, {"LoadImage: Not Found", "[Enter] Retry Arch", "RECOVERY"}},
+        {"invalid UKI", NULL, {"LoadImage:", "[Enter] Retry Arch", "RECOVERY"}}};
 
     for (int i = 1; i < argc; i += 2) {
         if (i + 1 >= argc) {

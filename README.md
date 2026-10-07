@@ -9,9 +9,11 @@ target       : \EFI\Linux\arch-linux.efi
 job          : get Arch running. look suspicious doing it.
 ```
 
+**As a thanks to Neuro for the DWM Setup**
+
 Loads an existing Arch UKI from the same EFI System Partition. Linux handles the kernel handoff. NeurOS supplies the gold/cyan glitch logo and approximately 2.9 seconds of unnecessary attitude.
 
-The logo stays until handoff. Enter or Esc skips the animation. If boot fails or returns: **Enter** retries Arch, **R** opens systemd-boot, **Esc** returns to the caller.
+The logo stays until handoff. Enter or Esc skips the animation. If boot fails or returns, a separate recovery screen uses gold/cyan accents and muted diagnostics: **Enter** retries Arch, **R** opens systemd-boot, **Esc** returns to the caller.
 
 **Compile. Interrogate.**
 

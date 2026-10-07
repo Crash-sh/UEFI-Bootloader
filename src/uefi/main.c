@@ -28,40 +28,28 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
     CHAR16 *path = L"\\EFI\\Linux\\arch-linux.efi";
     CHAR16 *operation;
     BOOLEAN cursor;
+    UINTN attribute;
 
     InitializeLib(image, system);
     cursor = ST->ConOut->Mode->CursorVisible;
+    attribute = ST->ConOut->Mode->Attribute;
 
     for (;;) {
         if (EFI_ERROR(show_splash())) {
-            uefi_call_wrapper(ST->ConOut->ClearScreen, 1, ST->ConOut);
-            uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, cursor);
-            Print(L"NeurOS\r\nBooting %s\r\n", path);
+            show_boot_fallback();
         }
 
         status = load_image(image, path, &operation);
 
-        uefi_call_wrapper(ST->ConOut->ClearScreen, 1, ST->ConOut);
-        uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, cursor);
-        Print(L"NeurOS\r\n%s\r\n%s: %r\r\n", path, operation, status);
-
-        if (status == EFI_NOT_FOUND) {
-            Print(L"Target missing on this loader's EFI System Partition.\r\n");
-        }
-
-        if (status == EFI_SECURITY_VIOLATION || status == EFI_ACCESS_DENIED) {
-            Print(L"Firmware refused the image. Check Secure Boot signatures.\r\n");
-        }
-
-        Print(L"[Enter] Retry Arch  [R] systemd-boot  [Esc] Return to firmware\r\n");
+        show_recovery(path, operation, status);
 
         for (;;) {
             if (EFI_ERROR(wait_key(&key))) {
-                return (status);
+                goto finish;
             }
 
             if (key.ScanCode == SCAN_ESC) {
-                return (status);
+                goto finish;
             }
 
             if (key.UnicodeChar == L'\r') {
@@ -75,4 +63,9 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
             }
         }
     }
+
+finish:
+    uefi_call_wrapper(ST->ConOut->SetAttribute, 2, ST->ConOut, attribute);
+    uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, cursor);
+    return (status);
 }

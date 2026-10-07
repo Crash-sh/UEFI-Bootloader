@@ -40,7 +40,7 @@ $(BUILD)/error.o: $(SOURCE)/tests/test.c | check-deps $(BUILD)
 $(BUILD)/test.o: $(SOURCE)/tests/test.c | check-deps $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c "$<" -o "$@"
 
-$(BUILD)/loader.so: $(BUILD)/main.o $(BUILD)/loader.o $(BUILD)/splash.o $(BUILD)/logo.o
+$(BUILD)/loader.so: $(BUILD)/main.o $(BUILD)/loader.o $(BUILD)/splash.o $(BUILD)/ui.o $(BUILD)/logo.o
 	$(LD) $(EFI_LINK) $(EFI_LIB)/crt0-efi-x86_64.o $^ -lefi -lgnuefi -o "$@"
 
 $(BUILD)/%.so: $(BUILD)/%.o
