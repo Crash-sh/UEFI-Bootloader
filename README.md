@@ -1,5 +1,9 @@
 # NeurOS // before the kernel
 
+
+![NeurOS animated boot splash](assets/neuros-splash.gif)
+
+
 ```text
 NSD / FIRMWARE EXPERIMENTS
 
@@ -11,9 +15,9 @@ job          : get Arch running. look suspicious doing it.
 
 **As a thanks to Neuro for the DWM Setup**
 
-Loads an existing Arch UKI from the same EFI System Partition. Linux handles the kernel handoff. NeurOS supplies the gold/cyan glitch logo and approximately 2.9 seconds of unnecessary attitude.
+Loads an existing Arch UKI from the same EFI System Partition. Linux handles the kernel handoff. NeurOS supplies 2.9 seconds of logo-only glitch: gold, warm fragments, cyan tearing, then a clean finish. The background stays black.
 
-The logo stays until handoff. Enter or Esc skips the animation. If boot fails or returns, a separate recovery screen uses gold/cyan accents and muted diagnostics: **Enter** retries Arch, **R** opens systemd-boot, **Esc** returns to the caller.
+The logo stays until handoff. Enter or Esc skips the animation after a brief input guard against the boot-menu key. Graphics failures show a status for two seconds before continuing. If boot fails or returns, a separate recovery screen uses gold/cyan accents and muted diagnostics: **Enter** retries Arch, **R** opens systemd-boot, **Esc** returns to the caller.
 
 **Compile. Interrogate.**
 

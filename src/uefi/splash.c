@@ -1,7 +1,10 @@
 #include "loader.h"
+#include "splash_effect.h"
 
 extern const UINT8 _binary_neuros_bmp_start[];
 extern const UINT8 _binary_neuros_bmp_end[];
+
+#define SPLASH_INPUT_GUARD_TICKS 10
 
 static UINT32 little32(const UINT8 *p)
 {
@@ -23,9 +26,16 @@ EFI_STATUS show_splash(VOID)
 
     const UINT8 *bmp = _binary_neuros_bmp_start;
 
-    status = uefi_call_wrapper(BS->LocateProtocol, 3, &guid, NULL, (VOID **)&gop);
+    /* Prefer the display used by the boot menu on machines with multiple GPUs. */
+    status = uefi_call_wrapper(BS->HandleProtocol, 3, ST->ConsoleOutHandle, &guid, (VOID **)&gop);
+    if (EFI_ERROR(status)) {
+        status = uefi_call_wrapper(BS->LocateProtocol, 3, &guid, NULL, (VOID **)&gop);
+    }
 
-    if (EFI_ERROR(status) || gop->Mode == NULL || gop->Mode->Info == NULL) {
+    if (EFI_ERROR(status)) {
+        return (status);
+    }
+    if (gop->Mode == NULL || gop->Mode->Info == NULL) {
         return (EFI_UNSUPPORTED);
     }
 
@@ -101,7 +111,8 @@ EFI_STATUS show_splash(VOID)
         goto release;
     }
 
-    status = uefi_call_wrapper(BS->SetTimer, 3, events[0], TimerPeriodic, (UINT64)500000);
+    status =
+        uefi_call_wrapper(BS->SetTimer, 3, events[0], TimerPeriodic, (UINT64)SPLASH_FRAME_PERIOD);
 
     if (EFI_ERROR(status)) {
         uefi_call_wrapper(BS->CloseEvent, 1, events[0]);
@@ -109,6 +120,8 @@ EFI_STATUS show_splash(VOID)
     }
 
     if (ST->ConIn != NULL) {
+        /* Discard the menu-selection key before accepting splash input. */
+        uefi_call_wrapper(ST->ConIn->Reset, 2, ST->ConIn, FALSE);
         events[1] = ST->ConIn->WaitForKey;
         count = 2;
     }
@@ -120,33 +133,8 @@ EFI_STATUS show_splash(VOID)
     uefi_call_wrapper(gop->Blt, 10, gop, &black, EfiBltVideoFill, 0, 0, 0, 0, screen_width,
                       screen_height, 0);
 
-    for (UINTN tick = 0; tick < 58; ++tick) {
-        BOOLEAN glitch = tick < 5 || (tick < 48 && tick % 19 < 3);
-
-        for (y = 0; y < height; ++y) {
-            INTN shift = glitch && (y / 7 + tick) % 5 == 0 ? (INTN)(tick % 3) * 12 - 12 : 0;
-
-            for (x = 0; x < width; ++x) {
-                INTN sample = (INTN)x + shift;
-                EFI_GRAPHICS_OUTPUT_BLT_PIXEL pixel = black;
-
-                if (sample >= 0 && (UINTN)sample < width) {
-                    pixel = base[y * width + (UINTN)sample];
-
-                    if (glitch && x + 4 < width) {
-                        pixel.Blue = base[y * width + x + 4].Blue;
-                        pixel.Green = base[y * width + x + 4].Green;
-                    }
-
-                    if (glitch && y % 4 == 0) {
-                        pixel.Red /= 2;
-                        pixel.Green /= 2;
-                        pixel.Blue /= 2;
-                    }
-                }
-                frame[y * width + x] = pixel;
-            }
-        }
+    for (UINTN tick = 0; tick < SPLASH_FRAME_COUNT; ++tick) {
+        render_splash_frame(base, frame, width, height, tick);
         status = uefi_call_wrapper(gop->Blt, 10, gop, frame, EfiBltBufferToVideo, 0, 0, left, top,
                                    width, height, width * sizeof(*frame));
         if (EFI_ERROR(status)) {
@@ -162,7 +150,9 @@ EFI_STATUS show_splash(VOID)
 
             if (event_index == 1 &&
                 !EFI_ERROR(uefi_call_wrapper(ST->ConIn->ReadKeyStroke, 2, ST->ConIn, &key))) {
-                if (key.UnicodeChar == L'\r' || key.ScanCode == SCAN_ESC) {
+                /* Consume early repeats while allowing the display to settle. */
+                if (tick >= SPLASH_INPUT_GUARD_TICKS &&
+                    (key.UnicodeChar == L'\r' || key.ScanCode == SCAN_ESC)) {
                     goto finish;
                 }
             }

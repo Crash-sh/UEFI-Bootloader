@@ -26,10 +26,12 @@ static VOID heading(CHAR16 *label)
     Print(L"  %s\r\n\r\n", label);
 }
 
-VOID show_boot_fallback(VOID)
+VOID show_boot_fallback(EFI_STATUS status)
 {
     begin_screen();
     heading(L"BOOT");
+    set_color(UI_MUTED);
+    Print(L"  Splash unavailable: %r\r\n\r\n", status);
     set_color(UI_TEXT);
     Print(L"  Starting the boot image...\r\n");
 }

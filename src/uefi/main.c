@@ -26,6 +26,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
     EFI_STATUS status;
     EFI_INPUT_KEY key;
     CHAR16 *path = L"\\EFI\\Linux\\arch-linux.efi";
+    EFI_STATUS splash_status;
     CHAR16 *operation;
     BOOLEAN cursor;
     UINTN attribute;
@@ -35,8 +36,10 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
     attribute = ST->ConOut->Mode->Attribute;
 
     for (;;) {
-        if (EFI_ERROR(show_splash())) {
-            show_boot_fallback();
+        splash_status = show_splash();
+        if (EFI_ERROR(splash_status)) {
+            show_boot_fallback(splash_status);
+            uefi_call_wrapper(BS->Stall, 1, 2000000);
         }
 
         status = load_image(image, path, &operation);
@@ -67,5 +70,6 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
 finish:
     uefi_call_wrapper(ST->ConOut->SetAttribute, 2, ST->ConOut, attribute);
     uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, cursor);
+    
     return (status);
 }
