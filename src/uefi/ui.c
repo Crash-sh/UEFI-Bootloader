@@ -48,13 +48,23 @@ VOID show_recovery(CHAR16 *path, CHAR16 *operation, EFI_STATUS status)
     heading(L"RECOVERY");
     set_color(UI_TEXT);
 
-    if (status == EFI_NOT_FOUND) {
+    if (status == EFI_NOT_READY) {
+        Print(L"  Choose a boot target below.\r\n");
+    }
+
+    else if (status == EFI_NOT_FOUND) {
         Print(L"  The boot image was not found on this EFI System Partition.\r\n");
-    } else if (status == EFI_SECURITY_VIOLATION || status == EFI_ACCESS_DENIED) {
+    }
+
+    else if (status == EFI_SECURITY_VIOLATION || status == EFI_ACCESS_DENIED) {
         Print(L"  Boot authorization failed. Check firmware trust and image signatures.\r\n");
-    } else if (EFI_ERROR(status)) {
+    }
+
+    else if (EFI_ERROR(status)) {
         Print(L"  The boot attempt failed. Retry or open systemd-boot.\r\n");
-    } else {
+    }
+
+    else {
         Print(L"  The boot image returned control to NeurOS.\r\n");
     }
 
@@ -62,6 +72,7 @@ VOID show_recovery(CHAR16 *path, CHAR16 *operation, EFI_STATUS status)
     Print(L"\r\n  Target: %s\r\n  %s: %r\r\n\r\n", path, operation, status);
 
     set_color(UI_CYAN);
-    Print(L"  [Enter] Retry Arch\r\n  [U] Boot UKI\r\n  [B] Previous UKI\r\n  [R] systemd-boot\r\n  [Esc] Return to caller\r\n");
+    Print(L"  [Enter] Retry Arch\r\n  [P] Previous Linux\r\n  [U] Boot UKI\r\n  [B] Previous "
+          L"UKI\r\n  [R] systemd-boot\r\n  [Esc] Return to caller\r\n");
     set_color(UI_TEXT);
 }

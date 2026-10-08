@@ -15,13 +15,13 @@ int sync_directory(const char *path)
 {
     int directory = open(path, O_RDONLY | O_DIRECTORY);
     if (directory < 0) {
-        return (-1);
+        return(-1);
     }
     int result = fsync(directory);
     int saved = errno;
     close(directory);
     errno = saved;
-    return (result);
+    return(result);
 }
 
 int path_join(char *output, size_t size, const char *base, const char *name)
@@ -29,20 +29,20 @@ int path_join(char *output, size_t size, const char *base, const char *name)
     int length = snprintf(output, size, "%s/%s", base, name);
     if (length < 0 || (size_t)length >= size) {
         fprintf(stderr, "Path too long\n");
-        return (-1);
+        return(-1);
     }
 
-    return (0);
+    return(0);
 }
 
 static unsigned int le16(const unsigned char *data)
 {
-    return ((unsigned int)data[0] | (unsigned int)data[1] << 8);
+    return((unsigned int)data[0] | (unsigned int)data[1] << 8);
 }
 
 static uint32_t le32(const unsigned char *data)
 {
-    return ((uint32_t)data[0] | (uint32_t)data[1] << 8 | (uint32_t)data[2] << 16 |
+    return((uint32_t)data[0] | (uint32_t)data[1] << 8 | (uint32_t)data[2] << 16 |
             (uint32_t)data[3] << 24);
 }
 
@@ -54,7 +54,7 @@ int require_signature_container(const char *path)
     int result = -1;
     FILE *stream = fopen(path, "rb");
     if (!stream) {
-        return (-1);
+        return(-1);
     }
     if (fstat(fileno(stream), &info) != 0 || info.st_size < 0 ||
         fread(dos, 1, sizeof(dos), stream) != sizeof(dos) || memcmp(dos, "MZ", 2) != 0 ||
@@ -69,8 +69,8 @@ int require_signature_container(const char *path)
     if (!offset || offset % 8 || size < 8 || offset + size > (uint64_t)info.st_size ||
         fseeko(stream, offset, SEEK_SET) != 0 ||
         fread(certificate, 1, sizeof(certificate), stream) != sizeof(certificate) ||
-        le32(certificate) <= 8 || le32(certificate) > size ||
-        le16(certificate + 4) != 0x200 || le16(certificate + 6) != 2) {
+        le32(certificate) <= 8 || le32(certificate) > size || le16(certificate + 4) != 0x200 ||
+        le16(certificate + 6) != 2) {
         goto done;
     }
     result = 0;
@@ -79,7 +79,7 @@ done:
     if (result) {
         fprintf(stderr, "%s: missing or malformed Authenticode signature container\n", path);
     }
-    return (result);
+    return(result);
 }
 
 int validate_image(const char *path, int require_uki)
@@ -101,7 +101,7 @@ int validate_image(const char *path, int require_uki)
 
     if (stream == NULL) {
         perror(path);
-        return (-1);
+        return(-1);
     }
 
     if (fstat(fileno(stream), &info) != 0 || !S_ISREG(info.st_mode) || info.st_size < 64) {
@@ -172,7 +172,7 @@ done:
     }
 
     fclose(stream);
-    return (result);
+    return(result);
 }
 
 int make_parents(const char *path)
@@ -182,7 +182,7 @@ int make_parents(const char *path)
 
     if (strlen(path) >= sizeof(buffer)) {
         errno = ENAMETOOLONG;
-        return (-1);
+        return(-1);
     }
 
     strcpy(buffer, path);
@@ -197,13 +197,13 @@ int make_parents(const char *path)
         if (mkdir(buffer, 0755) != 0 &&
             (errno != EEXIST || stat(buffer, &info) != 0 || !S_ISDIR(info.st_mode))) {
             perror(buffer);
-            return (-1);
+            return(-1);
         }
 
         *cursor = '/';
     }
 
-    return (0);
+    return(0);
 }
 
 int copy_image(const char *source, const char *destination, int exclusive)
@@ -344,5 +344,5 @@ done:
         unlink(output_path);
     }
 
-    return (result);
+    return(result);
 }

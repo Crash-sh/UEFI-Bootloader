@@ -1,6 +1,7 @@
 #define _XOPEN_SOURCE 700
 #include "common.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -20,7 +21,7 @@ int main(int argc, char **argv)
     }
 
     if (argc == 3) {
-        char parent[PATH_MAX], previous[PATH_MAX];
+        char parent[PATH_MAX], previous[PATH_MAX], staged[PATH_MAX];
         struct stat info;
         if (strlen(argv[2]) >= sizeof(parent) || make_parents(argv[2]) != 0 ||
             snprintf(previous, sizeof(previous), "%s.previous", argv[2]) >= (int)sizeof(previous)) {
@@ -40,15 +41,36 @@ int main(int argc, char **argv)
             perror("Cannot lock UKI directory");
             return (1);
         }
+        if (path_join(staged, sizeof(staged), parent, ".uki-XXXXXX") != 0) {
+            return (1);
+        }
+        int snapshot = mkstemp(staged);
+        if (snapshot < 0) {
+            perror("UKI snapshot");
+            return (1);
+        }
+        close(snapshot);
+        /* Validate the exact snapshot that will become active. */
+        if (copy_image(argv[1], staged, 0) != 0 || validate_image(staged, 1) != 0) {
+            unlink(staged);
+            return (1);
+        }
         if (lstat(argv[2], &info) == 0) {
             if (!S_ISREG(info.st_mode) || validate_image(argv[2], 1) != 0 ||
                 copy_image(argv[2], previous, 0) != 0) {
+                unlink(staged);
                 return (1);
             }
         } else if (errno != ENOENT) {
+            unlink(staged);
             return (1);
         }
-        if (copy_image(argv[1], argv[2], 0) != 0) {
+        if (rename(staged, argv[2]) != 0) {
+            unlink(staged);
+            return (1);
+        }
+        if (fsync(directory) != 0) {
+            fprintf(stderr, "UKI published but directory sync failed.\n");
             return (1);
         }
         close(directory);

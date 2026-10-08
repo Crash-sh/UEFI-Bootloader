@@ -18,7 +18,6 @@ OVMF_VARS ?= /usr/share/edk2/x64/OVMF_VARS.4m.fd
 OVMF_SECURE_CODE ?= /usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
 SBSIGN ?= /usr/lib/systemd/systemd-sbsign
 UKI_STUB ?= /usr/lib/systemd/boot/efi/linuxx64.efi.stub
-PYTHON ?= python3
 
 CPPFLAGS += -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/x86_64 -I$(EFI_INCLUDE)/protocol -DGNU_EFI_USE_MS_ABI
 CFLAGS += -std=c11 -O2 -Wall -Wextra -Werror -fpic -ffreestanding -fshort-wchar -fno-stack-protector -fno-strict-aliasing -mno-red-zone -maccumulate-outgoing-args
@@ -50,10 +49,16 @@ $(BUILD)/exit_retry.o: $(SOURCE)/tests/exit_retry.c | check-deps $(BUILD)
 $(BUILD)/large_map.o: $(SOURCE)/tests/exit_retry.c | check-deps $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DTEST_LARGE_MAP -MMD -MP -c "$<" -o "$@"
 
+$(BUILD)/grow_map.o: $(SOURCE)/tests/exit_retry.c | check-deps $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DTEST_GROW_MAP -MMD -MP -c "$<" -o "$@"
+
+$(BUILD)/recovery.o: $(SOURCE)/tests/recovery.c | check-deps $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c "$<" -o "$@"
+
 $(BUILD)/handoff.o: $(SOURCE)/uefi/handoff.S | $(BUILD)
 	$(CC) -c "$<" -o "$@"
 
-$(BUILD)/loader.so: $(BUILD)/main.o $(BUILD)/loader.o $(BUILD)/security.o $(BUILD)/linux.o $(BUILD)/linux_format.o $(BUILD)/handoff.o $(BUILD)/splash.o $(BUILD)/splash_effect.o $(BUILD)/ui.o $(BUILD)/logo.o
+$(BUILD)/loader.so: $(BUILD)/main.o $(BUILD)/loader.o $(BUILD)/security.o $(BUILD)/linux.o $(BUILD)/linux_format.o $(BUILD)/boot_config.o $(BUILD)/handoff.o $(BUILD)/splash.o $(BUILD)/splash_effect.o $(BUILD)/ui.o $(BUILD)/logo.o
 	$(LD) $(EFI_LINK) $(EFI_LIB)/crt0-efi-x86_64.o $^ -lefi -lgnuefi -o "$@"
 
 $(BUILD)/%.so: $(BUILD)/%.o
@@ -87,8 +92,8 @@ test: check $(BUILD)/boot-tests
 	"$(BUILD)/boot-tests" --build "$(BUILD)" --qemu "$(QEMU)" --firmware "$(OVMF_CODE)" --vars "$(OVMF_VARS)"
 
 .PHONY: check-linux test-linux
-$(BUILD)/linux-tests: $(SOURCE)/tests/linux.c $(SOURCE)/uefi/linux_format.c $(SOURCE)/uefi/linux_format.h | $(BUILD)
-	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/uefi/linux_format.c" -o "$@"
+$(BUILD)/linux-tests: $(SOURCE)/tests/linux.c $(SOURCE)/uefi/linux_format.c $(SOURCE)/uefi/linux_format.h $(SOURCE)/uefi/boot_config.c $(SOURCE)/uefi/boot_config.h | $(BUILD)
+	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/uefi/linux_format.c" "$(SOURCE)/uefi/boot_config.c" -o "$@"
 
 check-linux: $(BUILD)/linux-tests
 	"$(BUILD)/linux-tests"
@@ -102,14 +107,21 @@ $(BUILD)/make-initramfs: $(SOURCE)/tests/initramfs.c | $(BUILD)
 $(BUILD)/test-initramfs.cpio: $(BUILD)/test-init $(BUILD)/make-initramfs
 	"$(BUILD)/make-initramfs" "$<" "$@"
 
-test-linux: check $(BUILD)/boot-tests $(BUILD)/test-initramfs.cpio $(BUILD)/exit_retry.efi $(BUILD)/large_map.efi
+test-linux: check $(BUILD)/boot-tests $(BUILD)/test-initramfs.cpio $(BUILD)/exit_retry.efi $(BUILD)/large_map.efi $(BUILD)/grow_map.efi $(BUILD)/recovery.efi
 	@test -n "$(KERNEL)" || { echo 'Usage: make test-linux KERNEL=/path/to/vmlinuz'; exit 1; }
 	"$(BUILD)/boot-tests" --build "$(BUILD)" --qemu "$(QEMU)" --firmware "$(OVMF_CODE)" --vars "$(OVMF_VARS)" --kernel "$(KERNEL)"
 
+.PHONY: test-matrix test-production
+test-matrix: test-linux
+	"$(BUILD)/boot-tests" --build "$(BUILD)" --qemu "$(QEMU)" --firmware "$(OVMF_CODE)" --vars "$(OVMF_VARS)" --kernel "$(KERNEL)" --suite linux --machine pc --memory 256 --cpu max,vendor=GenuineIntel
+	"$(BUILD)/boot-tests" --build "$(BUILD)" --qemu "$(QEMU)" --firmware "$(OVMF_CODE)" --vars "$(OVMF_VARS)" --kernel "$(KERNEL)" --suite linux --machine q35 --memory 4096 --cpu max,vendor=AuthenticAMD
+
+test-production: test-matrix test-secureboot
+
 .PHONY: test-secureboot sign package-signed
-test-secureboot: check $(BUILD)/test-initramfs.cpio
+test-secureboot: check $(BUILD)/test-initramfs.cpio $(BUILD)/secureboot-tests
 	@test -n "$(KERNEL)" || { echo 'Usage: make test-secureboot KERNEL=/path/to/vmlinuz'; exit 1; }
-	$(PYTHON) "$(SOURCE)/tests/secureboot.py" --build "$(BUILD)" --kernel "$(KERNEL)" --qemu "$(QEMU)" --firmware "$(OVMF_SECURE_CODE)" --vars "$(OVMF_VARS)" --signer "$(SBSIGN)" --stub "$(UKI_STUB)"
+	"$(BUILD)/secureboot-tests" --build "$(BUILD)" --kernel "$(KERNEL)" --qemu "$(QEMU)" --firmware "$(OVMF_SECURE_CODE)" --vars "$(OVMF_VARS)" --signer "$(SBSIGN)" --stub "$(UKI_STUB)"
 
 sign: all
 	@test -n "$(SIGN_KEY)" -a -n "$(SIGN_CERT)" || { echo 'Set SIGN_KEY and SIGN_CERT to your signing key and PEM certificate'; exit 1; }
@@ -131,7 +143,15 @@ stage-uki: all
 
 -include $(wildcard $(BUILD)/*.d)
 
-tools: $(BUILD)/stage-uki $(BUILD)/stage-linux $(BUILD)/neuros-install
+tools: $(BUILD)/stage-uki $(BUILD)/stage-linux $(BUILD)/neuros-update-linux $(BUILD)/neuros-install
+
+$(BUILD)/neuros-update-linux: $(SOURCE)/tools/update_linux.c $(SOURCE)/tools/common.c $(SOURCE)/tools/common.h $(SOURCE)/uefi/boot_config.c $(SOURCE)/uefi/boot_config.h $(SOURCE)/uefi/linux_format.c $(SOURCE)/uefi/linux_format.h | $(BUILD)
+	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/tools/common.c" "$(SOURCE)/uefi/boot_config.c" "$(SOURCE)/uefi/linux_format.c" -o "$@"
+
+.PHONY: update-linux
+update-linux: all
+	@test -n "$(KERNEL)" -a -n "$(CMDLINE)" -a -n "$(INITRD)" || { echo 'Usage: make update-linux KERNEL=... CMDLINE=... INITRD=...'; exit 1; }
+	"$(BUILD)/neuros-update-linux" "$(KERNEL)" "$(CMDLINE)" "$(INITRD)" "$(ESP)/EFI/NeurOS"
 
 $(BUILD)/stage-linux: $(SOURCE)/tools/stage_linux.c $(SOURCE)/tools/common.c $(SOURCE)/tools/common.h $(SOURCE)/uefi/linux_format.c $(SOURCE)/uefi/linux_format.h | $(BUILD)
 	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/tools/common.c" "$(SOURCE)/uefi/linux_format.c" -o "$@"
@@ -150,8 +170,23 @@ $(BUILD)/neuros-install: $(SOURCE)/tools/install.c $(SOURCE)/tools/common.c $(SO
 $(BUILD)/tools-tests: $(SOURCE)/tests/tools.c $(SOURCE)/tools/common.c $(SOURCE)/tools/common.h | $(BUILD)
 	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/tools/common.c" -o "$@"
 
-check-tools: tools $(BUILD)/tools-tests
+$(BUILD)/install-tests: $(SOURCE)/tests/install.c $(SOURCE)/tools/install.c $(SOURCE)/tools/common.c $(SOURCE)/tools/common.h | $(BUILD)
+	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/tools/common.c" -o "$@"
+
+$(BUILD)/updates-tests: $(SOURCE)/tests/updates.c $(SOURCE)/tests/support.h $(SOURCE)/tools/common.c $(SOURCE)/tools/common.h | $(BUILD)
+	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/tools/common.c" -o "$@"
+
+$(BUILD)/secureboot-tests: $(SOURCE)/tests/secureboot.c $(SOURCE)/tests/support.h $(SOURCE)/tools/common.c $(SOURCE)/tools/common.h | $(BUILD)
+	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/tools/common.c" -o "$@"
+
+$(BUILD)/secureboot-format-tests: $(SOURCE)/tests/secureboot_format.c $(SOURCE)/tests/secureboot.c $(SOURCE)/tests/support.h $(SOURCE)/tools/common.c $(SOURCE)/tools/common.h | $(BUILD)
+	$(HOSTCC) $(HOSTCFLAGS) "$<" "$(SOURCE)/tools/common.c" -o "$@"
+
+check-tools: tools $(BUILD)/tools-tests $(BUILD)/install-tests $(BUILD)/updates-tests $(BUILD)/secureboot-format-tests
 	@if ! "$(BUILD)/tools-tests" 2>"$(BUILD)/tools-tests.log"; then cat "$(BUILD)/tools-tests.log" >&2; exit 1; fi
+	@if ! "$(BUILD)/install-tests" 2>"$(BUILD)/install-tests.log"; then cat "$(BUILD)/install-tests.log" >&2; exit 1; fi
+	"$(BUILD)/updates-tests" "$(BUILD)"
+	"$(BUILD)/secureboot-format-tests"
 
 $(BUILD)/logo.o: $(ROOT)/assets/neuros.bmp | $(BUILD)
 	cd "$(ROOT)/assets" && $(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.rodata,alloc,load,readonly,data,contents neuros.bmp "$@"

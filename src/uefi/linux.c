@@ -1,5 +1,6 @@
 #include "loader.h"
 #include "linux_format.h"
+#include "boot_config.h"
 
 #define LOW_MAX 0xffffffffULL
 #define MAP_LIMIT (4U * 1024 * 1024)
@@ -13,14 +14,14 @@ struct allocation {
     UINTN pages;
 };
 
-static EFI_STATUS allocate(struct allocation *memory, UINTN bytes,
-                           EFI_PHYSICAL_ADDRESS maximum, EFI_MEMORY_TYPE type)
+static EFI_STATUS allocate(struct allocation *memory, UINTN bytes, EFI_PHYSICAL_ADDRESS maximum,
+                           EFI_MEMORY_TYPE type)
 {
     EFI_STATUS status;
     memory->address = maximum;
     memory->pages = EFI_SIZE_TO_PAGES(bytes);
-    status = uefi_call_wrapper(BS->AllocatePages, 4, AllocateMaxAddress, type,
-                              memory->pages, &memory->address);
+    status = uefi_call_wrapper(BS->AllocatePages, 4, AllocateMaxAddress, type, memory->pages,
+                               &memory->address);
     if (EFI_ERROR(status)) {
         memory->pages = 0;
     } else if (memory->address < 0x100000) {
@@ -30,11 +31,11 @@ static EFI_STATUS allocate(struct allocation *memory, UINTN bytes,
     } else {
         SetMem((VOID *)(UINTN)memory->address, memory->pages * EFI_PAGE_SIZE, 0);
     }
-    return (status);
+    return(status);
 }
 
-static EFI_STATUS open_file(EFI_FILE_HANDLE root, CHAR16 *path, UINTN limit,
-                            EFI_FILE_HANDLE *file, UINTN *size)
+static EFI_STATUS open_file(EFI_FILE_HANDLE root, CHAR16 *path, UINTN limit, EFI_FILE_HANDLE *file,
+                            UINTN *size)
 {
     EFI_GUID info_guid = EFI_FILE_INFO_ID;
     union {
@@ -42,17 +43,15 @@ static EFI_STATUS open_file(EFI_FILE_HANDLE root, CHAR16 *path, UINTN limit,
         UINT8 bytes[512];
     } info = {0};
     UINTN info_size = sizeof(info);
-    EFI_STATUS status = uefi_call_wrapper(root->Open, 5, root, file, path,
-                                          EFI_FILE_MODE_READ, 0);
+    EFI_STATUS status = uefi_call_wrapper(root->Open, 5, root, file, path, EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
     }
     status = uefi_call_wrapper((*file)->GetInfo, 4, *file, &info_guid, &info_size, &info);
-    if (!EFI_ERROR(status) && (info_size < SIZE_OF_EFI_FILE_INFO ||
-                               info.info.Size < SIZE_OF_EFI_FILE_INFO ||
-                               info.info.Size > info_size ||
-                               (info.info.Attribute & EFI_FILE_DIRECTORY) ||
-                               info.info.FileSize > limit)) {
+    if (!EFI_ERROR(status) &&
+        (info_size > sizeof(info) || info_size < SIZE_OF_EFI_FILE_INFO ||
+         info.info.Size < SIZE_OF_EFI_FILE_INFO || info.info.Size > info_size ||
+         (info.info.Attribute & EFI_FILE_DIRECTORY) || info.info.FileSize > limit)) {
         status = EFI_BAD_BUFFER_SIZE;
     }
     if (EFI_ERROR(status)) {
@@ -61,7 +60,7 @@ static EFI_STATUS open_file(EFI_FILE_HANDLE root, CHAR16 *path, UINTN limit,
     } else {
         *size = info.info.FileSize;
     }
-    return (status);
+    return(status);
 }
 
 static EFI_STATUS read_exact(EFI_FILE_HANDLE file, VOID *buffer, UINTN size)
@@ -70,15 +69,58 @@ static EFI_STATUS read_exact(EFI_FILE_HANDLE file, VOID *buffer, UINTN size)
         UINTN count = size > 1024 * 1024 ? 1024 * 1024 : size;
         EFI_STATUS status = uefi_call_wrapper(file->Read, 3, file, &count, buffer);
         if (EFI_ERROR(status)) {
-            return (status);
+            return(status);
         }
         if (!count || count > size || count > 1024 * 1024) {
-            return (EFI_LOAD_ERROR);
+            return(EFI_LOAD_ERROR);
         }
         buffer = (UINT8 *)buffer + count;
         size -= count;
     }
-    return (EFI_SUCCESS);
+    return(EFI_SUCCESS);
+}
+
+static EFI_STATUS select_boot_set(EFI_FILE_HANDLE *root, BOOLEAN previous, BOOLEAN *configured)
+{
+    EFI_FILE_HANDLE file = NULL, directory = NULL;
+    UINT8 data[BOOT_CONFIG_MAX];
+    UINTN size;
+    struct boot_config config;
+    *configured = FALSE;
+    EFI_STATUS status = open_file(*root, L"boot.conf", sizeof(data), &file, &size);
+    if (status == EFI_NOT_FOUND) {
+        return(previous ? EFI_NOT_FOUND : EFI_SUCCESS);
+    }
+    *configured = TRUE;
+    if (EFI_ERROR(status)) {
+        return(status);
+    }
+    status = read_exact(file, data, size);
+    uefi_call_wrapper(file->Close, 1, file);
+    if (EFI_ERROR(status)) {
+        return(status);
+    }
+    if (boot_config_parse(data, size, &config) != 0) {
+        return(EFI_LOAD_ERROR);
+    }
+    const char *id = previous ? config.previous : config.current;
+    if (id[0] == '-') {
+        return(EFI_NOT_FOUND);
+    }
+    if (id[0] == 'l') { /* The parser only accepts "legacy" here. */
+        return(EFI_SUCCESS);
+    }
+    CHAR16 path[BOOT_SET_ID_MAX + 1];
+    UINTN i = 0;
+    do {
+        path[i] = id[i];
+    } while (id[i++]);
+    status = uefi_call_wrapper((*root)->Open, 5, *root, &directory, path, EFI_FILE_MODE_READ, 0);
+    if (!EFI_ERROR(status)) {
+        uefi_call_wrapper((*root)->Close, 1, *root);
+        *root = directory;
+    }
+    return(status);
 }
 
 static EFI_STATUS allocate_kernel(struct allocation *memory, const struct setup_header *h,
@@ -92,24 +134,24 @@ static EFI_STATUS allocate_kernel(struct allocation *memory, const struct setup_
         memory->address = preferred;
         memory->pages = EFI_SIZE_TO_PAGES(h->init_size);
         status = uefi_call_wrapper(BS->AllocatePages, 4, AllocateAddress, EfiLoaderCode,
-                                  memory->pages, &memory->address);
+                                   memory->pages, &memory->address);
         if (!EFI_ERROR(status)) {
             *kernel = memory->address;
             SetMem((VOID *)(UINTN)*kernel, memory->pages * EFI_PAGE_SIZE, 0);
-            return (EFI_SUCCESS);
+            return(EFI_SUCCESS);
         }
         memory->pages = 0;
     }
     status = allocate(memory, (UINTN)h->init_size + alignment - 1, LOW_MAX, EfiLoaderCode);
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
     }
     *kernel = (memory->address + alignment - 1) & ~(alignment - 1);
     /* Loading below pref_address makes the decompressor relocate outside our allocation. */
     if (*kernel < preferred) {
-        return (EFI_OUT_OF_RESOURCES);
+        return(EFI_OUT_OF_RESOURCES);
     }
-    return (EFI_SUCCESS);
+    return(EFI_SUCCESS);
 }
 
 static VOID platform_info(struct boot_params *params)
@@ -130,41 +172,46 @@ static VOID platform_info(struct boot_params *params)
             params->acpi_rsdp_addr = (UINTN)table->VendorTable;
         }
     }
-    EFI_STATUS status = uefi_call_wrapper(BS->HandleProtocol, 3, ST->ConsoleOutHandle,
-                                          &graphics, (VOID **)&gop);
+    EFI_STATUS status =
+        uefi_call_wrapper(BS->HandleProtocol, 3, ST->ConsoleOutHandle, &graphics, (VOID **)&gop);
     if (EFI_ERROR(status)) {
         status = uefi_call_wrapper(BS->LocateProtocol, 3, &graphics, NULL, (VOID **)&gop);
     }
     if (EFI_ERROR(status) || !gop->Mode || !gop->Mode->Info) {
-        return;
+        return
     }
     info = gop->Mode->Info;
     UINT32 masks[4];
     if (info->PixelFormat == PixelRedGreenBlueReserved8BitPerColor) {
-        masks[0] = 0xff; masks[1] = 0xff00; masks[2] = 0xff0000; masks[3] = 0xff000000;
+        masks[0] = 0xff;
+        masks[1] = 0xff00;
+        masks[2] = 0xff0000;
+        masks[3] = 0xff000000;
     } else if (info->PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
-        masks[0] = 0xff0000; masks[1] = 0xff00; masks[2] = 0xff; masks[3] = 0xff000000;
+        masks[0] = 0xff0000;
+        masks[1] = 0xff00;
+        masks[2] = 0xff;
+        masks[3] = 0xff000000;
     } else if (info->PixelFormat == PixelBitMask) {
         masks[0] = info->PixelInformation.RedMask;
         masks[1] = info->PixelInformation.GreenMask;
         masks[2] = info->PixelInformation.BlueMask;
         masks[3] = info->PixelInformation.ReservedMask;
     } else {
-        return;
+        return
     }
     /* Never switch modes or touch pixels here: retain the completed splash. */
     linux_framebuffer(screen, gop->Mode->FrameBufferBase, gop->Mode->FrameBufferSize,
-                      info->HorizontalResolution, info->VerticalResolution,
-                      info->PixelsPerScanLine, masks);
+                      info->HorizontalResolution, info->VerticalResolution, info->PixelsPerScanLine,
+                      masks);
 }
 
-static EFI_STATUS memory_info(struct boot_params *params, VOID *map, UINTN size,
-                              UINTN stride, UINT32 version,
-                              struct setup_data *extension, UINTN capacity)
+static EFI_STATUS memory_info(struct boot_params *params, VOID *map, UINTN size, UINTN stride,
+                              UINT32 version, struct setup_data *extension, UINTN capacity)
 {
     if (version != EFI_MEMORY_DESCRIPTOR_VERSION ||
         linux_memory_map(params, map, size, stride, extension, capacity) != 0) {
-        return (EFI_LOAD_ERROR);
+        return(EFI_LOAD_ERROR);
     }
     params->efi_info.efi_loader_signature = 0x34364c45; /* EL64 */
     params->efi_info.efi_systab = (UINT32)(UINTN)ST;
@@ -174,19 +221,19 @@ static EFI_STATUS memory_info(struct boot_params *params, VOID *map, UINTN size,
     params->efi_info.efi_memmap_size = size;
     params->efi_info.efi_memdesc_size = stride;
     params->efi_info.efi_memdesc_version = version;
-    return (EFI_SUCCESS);
+    return(EFI_SUCCESS);
 }
 
-static VOID __attribute__((noreturn)) stop_after_exit(VOID)
+static VOID __attribute__((noreturn) stop_after_exit(VOID)
 {
     /* Even a failed first ExitBootServices can partially shut down firmware.
-     * Never return to the recovery UI or call console/file protocols here. */
+     * Never returnto the recovery UI or call console/file protocols here. */
     for (;;) {
         __asm__ volatile("cli; hlt");
     }
 }
 
-EFI_STATUS load_linux(EFI_HANDLE parent, BOOLEAN *present, CHAR16 **operation)
+EFI_STATUS load_linux(EFI_HANDLE parent, BOOLEAN *present, CHAR16 **operation, BOOLEAN previous)
 {
     EFI_LOADED_IMAGE *loaded;
     EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *filesystem;
@@ -198,39 +245,56 @@ EFI_STATUS load_linux(EFI_HANDLE parent, BOOLEAN *present, CHAR16 **operation)
     struct boot_params *params;
     UINT8 header[4096];
     UINTN size, header_size, cr4, map_size, key, stride, map_capacity = 0;
-    BOOLEAN secure;
+    BOOLEAN secure, configured;
     UINT32 version;
     EFI_PHYSICAL_ADDRESS kernel;
     EFI_STATUS status;
 
     *present = TRUE;
-    *operation = L"Linux filesystem";
-    status = uefi_call_wrapper(BS->HandleProtocol, 3, parent, &LoadedImageProtocol,
-                              (VOID **)&loaded);
+    *operation = L"Linux Secure Boot";
+    status = secure_boot_state(&secure);
+    if (!EFI_ERROR(status) && secure) {
+        status = EFI_SECURITY_VIOLATION;
+    }
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
+    }
+    *operation = L"Linux filesystem";
+    status =
+        uefi_call_wrapper(BS->HandleProtocol, 3, parent, &LoadedImageProtocol, (VOID **)&loaded);
+    if (EFI_ERROR(status)) {
+        return(status);
     }
     status = uefi_call_wrapper(BS->HandleProtocol, 3, loaded->DeviceHandle, &fs_guid,
-                              (VOID **)&filesystem);
+                               (VOID **)&filesystem);
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
     }
     status = uefi_call_wrapper(filesystem->OpenVolume, 2, filesystem, &root);
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
     }
-    *operation = L"Linux kernel";
-    status = open_file(root, LINUX_PATH, LINUX_KERNEL_LIMIT, &file, &size);
-    if (status == EFI_NOT_FOUND) {
+    *operation = L"Linux boot directory";
+    EFI_FILE_HANDLE directory;
+    status =
+        uefi_call_wrapper(root->Open, 5, root, &directory, L"\\EFI\\NeurOS", EFI_FILE_MODE_READ, 0);
+    if (status == EFI_NOT_FOUND && !previous) {
         *present = FALSE;
     }
     if (EFI_ERROR(status)) {
         goto cleanup;
     }
-    *operation = L"Linux Secure Boot";
-    status = secure_boot_state(&secure);
-    if (!EFI_ERROR(status) && secure) {
-        status = EFI_SECURITY_VIOLATION;
+    uefi_call_wrapper(root->Close, 1, root);
+    root = directory;
+    *operation = previous ? L"Previous Linux boot set" : L"Linux boot configuration";
+    status = select_boot_set(&root, previous, &configured);
+    if (EFI_ERROR(status)) {
+        goto cleanup;
+    }
+    *operation = L"Linux kernel";
+    status = open_file(root, L"vmlinuz", LINUX_KERNEL_LIMIT, &file, &size);
+    if (status == EFI_NOT_FOUND && !configured && !previous) {
+        *present = FALSE;
     }
     if (EFI_ERROR(status)) {
         goto cleanup;
@@ -284,8 +348,7 @@ EFI_STATUS load_linux(EFI_HANDLE parent, BOOLEAN *present, CHAR16 **operation)
     file = NULL;
 
     *operation = L"Linux cmdline.txt";
-    status = open_file(root, L"\\EFI\\NeurOS\\cmdline.txt", LINUX_CMDLINE_LIMIT + 2,
-                       &file, &size);
+    status = open_file(root, L"cmdline.txt", LINUX_CMDLINE_LIMIT + 2, &file, &size);
     if (EFI_ERROR(status)) {
         goto cleanup;
     }
@@ -309,7 +372,11 @@ EFI_STATUS load_linux(EFI_HANDLE parent, BOOLEAN *present, CHAR16 **operation)
     file = NULL;
 
     *operation = L"Linux initrd";
-    status = open_file(root, L"\\EFI\\NeurOS\\initrd", INITRD_LIMIT, &file, &size);
+    status = open_file(root, L"initrd", INITRD_LIMIT, &file, &size);
+    /* Versioned sets always include an initrd. Never boot a damaged set without it. */
+    if (status == EFI_NOT_FOUND && configured) {
+        goto cleanup;
+    }
     if (status != EFI_NOT_FOUND) {
         if (EFI_ERROR(status)) {
             goto cleanup;
@@ -363,10 +430,13 @@ EFI_STATUS load_linux(EFI_HANDLE parent, BOOLEAN *present, CHAR16 **operation)
     for (UINTN attempt = 0; attempt < 8; ++attempt) {
         map_size = map_capacity;
         status = uefi_call_wrapper(BS->GetMemoryMap, 5, &map_size,
-                                  (VOID *)(UINTN)memory[MAP].address, &key, &stride, &version);
-        if (status == EFI_BUFFER_TOO_SMALL && !exit_attempted) {
+                                   (VOID *)(UINTN)memory[MAP].address, &key, &stride, &version);
+        if (status == EFI_BUFFER_TOO_SMALL) {
             if (map_size > MAP_LIMIT - MAP_SLACK) {
                 status = EFI_OUT_OF_RESOURCES;
+                if (exit_attempted) {
+                    stop_after_exit();
+                }
                 goto cleanup;
             }
             if (memory[MAP].pages) {
@@ -377,14 +447,17 @@ EFI_STATUS load_linux(EFI_HANDLE parent, BOOLEAN *present, CHAR16 **operation)
             /* Raw map plus enough sorted E820 storage for every possible descriptor. */
             status = allocate(&memory[MAP], 2 * map_capacity, LOW_MAX, EfiLoaderData);
             if (EFI_ERROR(status)) {
+                if (exit_attempted) {
+                    stop_after_exit();
+                }
                 goto cleanup;
             }
             continue;
         }
         if (!EFI_ERROR(status)) {
             struct setup_data *extension = (VOID *)(UINTN)(memory[MAP].address + map_capacity);
-            status = memory_info(params, (VOID *)(UINTN)memory[MAP].address,
-                                  map_size, stride, version, extension, map_capacity);
+            status = memory_info(params, (VOID *)(UINTN)memory[MAP].address, map_size, stride,
+                                 version, extension, map_capacity);
         }
         if (EFI_ERROR(status)) {
             if (exit_attempted) {
@@ -423,5 +496,5 @@ cleanup:
             uefi_call_wrapper(BS->FreePages, 2, memory[i].address, memory[i].pages);
         }
     }
-    return (status);
+    return(status);
 }

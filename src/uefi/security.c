@@ -6,8 +6,8 @@ EFI_STATUS secure_boot_state(BOOLEAN *enabled)
     UINT8 value = 0xff;
     UINTN size = sizeof(value);
     *enabled = TRUE; /* A read error must never authorize unsigned direct boot. */
-    EFI_STATUS status = uefi_call_wrapper(RT->GetVariable, 5, L"SecureBoot", &global,
-                                          NULL, &size, &value);
+    EFI_STATUS status =
+        uefi_call_wrapper(RT->GetVariable, 5, L"SecureBoot", &global, NULL, &size, &value);
     if (status == EFI_NOT_FOUND) {
         /* Pre-Secure-Boot firmware. */
         *enabled = FALSE;

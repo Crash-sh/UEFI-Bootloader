@@ -63,7 +63,3 @@ note.txt
 # editor formatting
 .clang-format
 .editorconfig
-
-
-## haven't tested these yet
-src/tests/secureboot.py

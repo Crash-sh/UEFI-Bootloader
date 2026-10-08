@@ -61,7 +61,7 @@ static int remove_entry(const char *path, const struct stat *info, int type, str
     (void)info;
     (void)type;
     (void)walk;
-    return (remove(path));
+    return(remove(path));
 }
 
 int main(void)
@@ -153,5 +153,5 @@ int main(void)
 
     puts("Native tool validation and file-copy checks passed.");
 
-    return (0);
+    return(0);
 }

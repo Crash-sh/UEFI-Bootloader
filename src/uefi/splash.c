@@ -11,7 +11,7 @@ static UINT32 little32(const UINT8 *p)
     return ((UINT32)p[0] | (UINT32)p[1] << 8 | (UINT32)p[2] << 16 | (UINT32)p[3] << 24);
 }
 
-EFI_STATUS show_splash(VOID)
+EFI_STATUS show_splash(BOOLEAN *recovery)
 {
     EFI_GUID guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
     EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
@@ -25,6 +25,7 @@ EFI_STATUS show_splash(VOID)
     UINTN source_width, source_height, size, left, top, screen_width, screen_height;
 
     const UINT8 *bmp = _binary_neuros_bmp_start;
+    *recovery = FALSE;
 
     /* Prefer the display used by the boot menu on machines with multiple GPUs. */
     status = uefi_call_wrapper(BS->HandleProtocol, 3, ST->ConsoleOutHandle, &guid, (VOID **)&gop);
@@ -152,6 +153,10 @@ EFI_STATUS show_splash(VOID)
 
             if (event_index == 1 &&
                 !EFI_ERROR(uefi_call_wrapper(ST->ConIn->ReadKeyStroke, 2, ST->ConIn, &key))) {
+                if (key.UnicodeChar == L'm' || key.UnicodeChar == L'M') {
+                    *recovery = TRUE;
+                    goto finish;
+                }
                 /* Consume early repeats while allowing the display to settle. */
                 if (tick >= SPLASH_INPUT_GUARD_TICKS &&
                     (key.UnicodeChar == L'\r' || key.ScanCode == SCAN_ESC)) {

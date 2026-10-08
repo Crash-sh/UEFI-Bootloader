@@ -54,6 +54,7 @@ VOID render_splash_frame(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL *base,
     } else {
         BOOLEAN hot = tick < 21;
         BOOLEAN tearing = tick < 11 || tick == 21 || tick == 22 || tick == 29;
+
         UINTN band_height = height / (tearing ? 48 : 90) + 1;
         UINTN amplitude = width / (tearing ? 14 : 100) + 1;
         UINTN separation = width / (tearing ? 55 : 180) + 1;
@@ -61,7 +62,9 @@ VOID render_splash_frame(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL *base,
 
         for (UINTN y = 0; y < height; ++y) {
             UINT32 band = noise((UINT32)(y / band_height) + (UINT32)tick * 131U);
+
             INTN shift = (INTN)(band % (amplitude * 2 + 1)) - (INTN)amplitude;
+
             UINTN fragment_width = width / 5 + 1;
             UINTN fragment_left = noise(band) % width;
             UINTN fragment_length = fragment_width + noise(band + 1) % fragment_width;
