@@ -28,6 +28,9 @@ static VOID heading(CHAR16 *label)
 
 VOID show_boot_fallback(EFI_STATUS status)
 {
+    if (!ST->ConOut || !ST->ConOut->Mode) {
+        return;
+    }
     begin_screen();
     heading(L"BOOT");
     set_color(UI_MUTED);
@@ -38,6 +41,9 @@ VOID show_boot_fallback(EFI_STATUS status)
 
 VOID show_recovery(CHAR16 *path, CHAR16 *operation, EFI_STATUS status)
 {
+    if (!ST->ConOut || !ST->ConOut->Mode) {
+        return;
+    }
     begin_screen();
     heading(L"RECOVERY");
     set_color(UI_TEXT);
@@ -45,7 +51,7 @@ VOID show_recovery(CHAR16 *path, CHAR16 *operation, EFI_STATUS status)
     if (status == EFI_NOT_FOUND) {
         Print(L"  The boot image was not found on this EFI System Partition.\r\n");
     } else if (status == EFI_SECURITY_VIOLATION || status == EFI_ACCESS_DENIED) {
-        Print(L"  Firmware refused the image. Check Secure Boot signatures.\r\n");
+        Print(L"  Boot authorization failed. Check firmware trust and image signatures.\r\n");
     } else if (EFI_ERROR(status)) {
         Print(L"  The boot attempt failed. Retry or open systemd-boot.\r\n");
     } else {
@@ -56,6 +62,6 @@ VOID show_recovery(CHAR16 *path, CHAR16 *operation, EFI_STATUS status)
     Print(L"\r\n  Target: %s\r\n  %s: %r\r\n\r\n", path, operation, status);
 
     set_color(UI_CYAN);
-    Print(L"  [Enter] Retry Arch\r\n  [R] systemd-boot\r\n  [Esc] Return to caller\r\n");
+    Print(L"  [Enter] Retry Arch\r\n  [U] Boot UKI\r\n  [B] Previous UKI\r\n  [R] systemd-boot\r\n  [Esc] Return to caller\r\n");
     set_color(UI_TEXT);
 }

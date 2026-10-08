@@ -1,8 +1,12 @@
 .DEFAULT_GOAL := all
 
+.PHONY: test-secureboot sign package-signed
+test-secureboot sign package-signed:
+	$(MAKE) -C "$(ROOT)/src" $@
+
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: all check run clean check-deps test package stage-uki tools check-tools
+.PHONY: all check run clean check-deps test package stage-uki stage-linux tools check-tools check-linux test-linux
 
-all check run clean check-deps test package stage-uki tools check-tools:
+all check run clean check-deps test package stage-uki stage-linux tools check-tools check-linux test-linux:
 	$(MAKE) -C "$(ROOT)/src" $@

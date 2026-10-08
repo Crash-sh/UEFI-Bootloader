@@ -54,8 +54,8 @@ static int check_secure_boot(void)
         matches.gl_pathc == 1) {
         stream = fopen(matches.gl_pathv[0], "rb");
         if (stream != NULL && fread(value, 1, sizeof(value), stream) == 5 && !ferror(stream) &&
-            value[4] == 0) {
-            result = 0;
+            value[4] <= 1) {
+            result = value[4];
         }
     }
 
@@ -65,8 +65,8 @@ static int check_secure_boot(void)
 
     globfree(&matches);
 
-    if (result != 0) {
-        fprintf(stderr, "Secure Boot must be verifiably disabled for this unsigned build\n");
+    if (result < 0) {
+        fprintf(stderr, "Could not determine Secure Boot state; refusing installation\n");
     }
 
     return (result);
@@ -91,12 +91,17 @@ int main(int argc, char **argv)
     char sources[2][PATH_MAX], destinations[2][PATH_MAX];
     struct stat info;
     ssize_t length;
+    int signed_package = 0, secure;
 
-    if (argc == 3 && strcmp(argv[1], "--esp") == 0) {
-        requested = argv[2];
-    } else if (argc != 1) {
-        fprintf(stderr, "Usage: %s [--esp /boot]\n", argv[0]);
-        return (2);
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--esp") == 0 && i + 1 < argc) {
+            requested = argv[++i];
+        } else if (strcmp(argv[i], "--signed") == 0) {
+            signed_package = 1;
+        } else {
+            fprintf(stderr, "Usage: %s [--esp /boot] [--signed]\n", argv[0]);
+            return (2);
+        }
     }
 
     if (geteuid() != 0) {
@@ -125,18 +130,23 @@ int main(int argc, char **argv)
 
     *last = '\0';
 
-    if (path_join(deploy, sizeof(deploy), executable, "deploy") != 0 || check_mount(esp) != 0 ||
-        check_secure_boot() != 0) {
+    secure = check_secure_boot();
+    if (path_join(deploy, sizeof(deploy), executable, signed_package ? "deploy-signed" : "deploy") != 0 ||
+        check_mount(esp) != 0 || secure < 0) {
+        return (1);
+    }
+    if (secure && !signed_package) {
+        fprintf(stderr, "Secure Boot is enabled: use make package-signed and install --signed.\n");
         return (1);
     }
 
     if (path_join(path, sizeof(path), esp, "EFI/Linux/arch-linux.efi") != 0 ||
-        validate_image(path, 1) != 0) {
+        validate_image(path, 1) != 0 || (secure && require_signature_container(path) != 0)) {
         return (1);
     }
 
     if (path_join(path, sizeof(path), esp, "EFI/systemd/systemd-bootx64.efi") != 0 ||
-        require_path(path, 0) != 0) {
+        validate_image(path, 0) != 0 || (secure && require_signature_container(path) != 0)) {
         return (1);
     }
 
@@ -156,7 +166,8 @@ int main(int argc, char **argv)
             return (1);
         }
     }
-    if (validate_image(sources[0], 0) != 0) {
+    if (validate_image(sources[0], 0) != 0 ||
+        (signed_package && require_signature_container(sources[0]) != 0)) {
         return (1);
     }
     if (copy_image(sources[0], destinations[0], 1) != 0) {
@@ -172,6 +183,9 @@ int main(int argc, char **argv)
     }
 
     puts("Installed NeurOS menu entry. Boot order and default are unchanged.");
+    if (signed_package) {
+        puts("Signature containers checked; firmware validates signatures and enrolled trust at boot.");
+    }
     puts("Reboot manually, hold Space for the systemd-boot menu, and choose NeurOS.");
 
     return (0);

@@ -11,6 +11,19 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+int sync_directory(const char *path)
+{
+    int directory = open(path, O_RDONLY | O_DIRECTORY);
+    if (directory < 0) {
+        return (-1);
+    }
+    int result = fsync(directory);
+    int saved = errno;
+    close(directory);
+    errno = saved;
+    return (result);
+}
+
 int path_join(char *output, size_t size, const char *base, const char *name)
 {
     int length = snprintf(output, size, "%s/%s", base, name);
@@ -31,6 +44,42 @@ static uint32_t le32(const unsigned char *data)
 {
     return ((uint32_t)data[0] | (uint32_t)data[1] << 8 | (uint32_t)data[2] << 16 |
             (uint32_t)data[3] << 24);
+}
+
+int require_signature_container(const char *path)
+{
+    /* Preflight only. This does not establish a signature's validity or firmware trust. */
+    unsigned char dos[64], pe[24], optional[152], certificate[8];
+    struct stat info;
+    int result = -1;
+    FILE *stream = fopen(path, "rb");
+    if (!stream) {
+        return (-1);
+    }
+    if (fstat(fileno(stream), &info) != 0 || info.st_size < 0 ||
+        fread(dos, 1, sizeof(dos), stream) != sizeof(dos) || memcmp(dos, "MZ", 2) != 0 ||
+        fseeko(stream, le32(dos + 60), SEEK_SET) != 0 ||
+        fread(pe, 1, sizeof(pe), stream) != sizeof(pe) || memcmp(pe, "PE\0\0", 4) != 0 ||
+        le16(pe + 20) < sizeof(optional) ||
+        fread(optional, 1, sizeof(optional), stream) != sizeof(optional) ||
+        le16(optional) != 0x20b || le32(optional + 108) < 5) {
+        goto done;
+    }
+    uint64_t offset = le32(optional + 144), size = le32(optional + 148);
+    if (!offset || offset % 8 || size < 8 || offset + size > (uint64_t)info.st_size ||
+        fseeko(stream, offset, SEEK_SET) != 0 ||
+        fread(certificate, 1, sizeof(certificate), stream) != sizeof(certificate) ||
+        le32(certificate) <= 8 || le32(certificate) > size ||
+        le16(certificate + 4) != 0x200 || le16(certificate + 6) != 2) {
+        goto done;
+    }
+    result = 0;
+done:
+    fclose(stream);
+    if (result) {
+        fprintf(stderr, "%s: missing or malformed Authenticode signature container\n", path);
+    }
+    return (result);
 }
 
 int validate_image(const char *path, int require_uki)
@@ -252,6 +301,27 @@ int copy_image(const char *source, const char *destination, int exclusive)
     output = -1;
 
     if (!exclusive && rename(temporary, destination) != 0) {
+        goto done;
+    }
+
+    char parent[PATH_MAX];
+    if (strlen(destination) >= sizeof(parent)) {
+        errno = ENAMETOOLONG;
+        goto done;
+    }
+    strcpy(parent, destination);
+    char *slash = strrchr(parent, '/');
+    if (slash == parent) {
+        slash[1] = '\0';
+    } else if (slash) {
+        *slash = '\0';
+    } else {
+        strcpy(parent, ".");
+    }
+    /* Once published, do not remove the new file if directory fsync fails. */
+    created = 0;
+    if (sync_directory(parent) != 0) {
+        fprintf(stderr, "File published but directory sync failed: %s\n", destination);
         goto done;
     }
 

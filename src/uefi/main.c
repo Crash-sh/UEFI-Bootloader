@@ -25,15 +25,18 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
 {
     EFI_STATUS status;
     EFI_INPUT_KEY key;
-    CHAR16 *path = L"\\EFI\\Linux\\arch-linux.efi";
+    CHAR16 *path = UKI_PATH;
     EFI_STATUS splash_status;
     CHAR16 *operation;
     BOOLEAN cursor;
     UINTN attribute;
+    BOOLEAN firmware_image = FALSE, direct, secure;
 
     InitializeLib(image, system);
-    cursor = ST->ConOut->Mode->CursorVisible;
-    attribute = ST->ConOut->Mode->Attribute;
+    cursor = ST->ConOut && ST->ConOut->Mode ? ST->ConOut->Mode->CursorVisible : FALSE;
+    attribute = ST->ConOut && ST->ConOut->Mode ? ST->ConOut->Mode->Attribute : 0;
+    /* A recovery screen must not reset unexpectedly after the UEFI watchdog expires. */
+    uefi_call_wrapper(BS->SetWatchdogTimer, 4, 0, 0, 0, NULL);
 
     for (;;) {
         splash_status = show_splash();
@@ -42,7 +45,24 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
             uefi_call_wrapper(BS->Stall, 1, 2000000);
         }
 
-        status = load_image(image, path, &operation);
+        if (firmware_image) {
+            status = load_image(image, path, &operation);
+        } else {
+            operation = L"Secure Boot state";
+            status = secure_boot_state(&secure);
+            if (!EFI_ERROR(status) && secure) {
+                /* LoadImage enforces db/dbx. Do not read unsigned external boot data. */
+                path = UKI_PATH;
+                status = load_image(image, path, &operation);
+            } else if (!EFI_ERROR(status)) {
+                path = LINUX_PATH;
+                status = load_linux(image, &direct, &operation);
+                if (!direct) {
+                    path = UKI_PATH;
+                    status = load_image(image, path, &operation);
+                }
+            }
+        }
 
         show_recovery(path, operation, status);
 
@@ -56,20 +76,34 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
             }
 
             if (key.UnicodeChar == L'\r') {
-                path = L"\\EFI\\Linux\\arch-linux.efi";
+                firmware_image = FALSE;
                 break;
             }
 
             if (key.UnicodeChar == L'r' || key.UnicodeChar == L'R') {
                 path = L"\\EFI\\systemd\\systemd-bootx64.efi";
+                firmware_image = TRUE;
+                break;
+            }
+
+            if (key.UnicodeChar == L'u' || key.UnicodeChar == L'U') {
+                path = UKI_PATH;
+                firmware_image = TRUE;
+                break;
+            }
+            if (key.UnicodeChar == L'b' || key.UnicodeChar == L'B') {
+                path = PREVIOUS_UKI_PATH;
+                firmware_image = TRUE;
                 break;
             }
         }
     }
 
 finish:
-    uefi_call_wrapper(ST->ConOut->SetAttribute, 2, ST->ConOut, attribute);
-    uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, cursor);
+    if (ST->ConOut && ST->ConOut->Mode) {
+        uefi_call_wrapper(ST->ConOut->SetAttribute, 2, ST->ConOut, attribute);
+        uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, cursor);
+    }
     
     return (status);
 }

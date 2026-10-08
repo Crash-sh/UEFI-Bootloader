@@ -20,12 +20,16 @@ struct options {
     const char *qemu;
     const char *firmware;
     const char *vars;
+    const char *kernel;
+    const char *machine;
+    const char *memory;
 };
 
 struct test_case {
     const char *name;
     const char *payload;
     const char *expected[3];
+    int direct; /* 1: invalid kernel, 2: missing cmdline, 3: boot, 4: empty initrd, 5: exit retry */
 };
 
 static volatile sig_atomic_t interrupted;
@@ -178,7 +182,7 @@ static int run_case(const struct options *options, const struct test_case *test)
 {
     char directory[] = "/tmp/neuros-XXXXXX";
 
-    const char *folders[] = {"esp", "esp/EFI", "esp/EFI/BOOT", "esp/EFI/Linux"};
+    const char *folders[] = {"esp", "esp/EFI", "esp/EFI/BOOT", "esp/EFI/Linux", "esp/EFI/NeurOS"};
 
     char source[PATH_MAX], target[PATH_MAX], path[PATH_MAX];
     char log[PATH_MAX], errors[PATH_MAX], variables[PATH_MAX];
@@ -209,9 +213,18 @@ static int run_case(const struct options *options, const struct test_case *test)
         }
     }
 
-    if (format(source, sizeof(source), "%s/esp/EFI/BOOT/BOOTX64.EFI", options->build) != 0 ||
+    if (format(source, sizeof(source), "%s/%s", options->build,
+               test->direct == 6 ? "large_map.efi" :
+               test->direct == 5 ? "exit_retry.efi" : "esp/EFI/BOOT/BOOTX64.EFI") != 0 ||
         format(target, sizeof(target), "%s/esp/EFI/BOOT/BOOTX64.EFI", directory) != 0 ||
         copy_file(source, target) != 0) {
+        goto cleanup;
+    }
+
+    if ((test->direct == 5 || test->direct == 6) &&
+        (format(source, sizeof(source), "%s/esp/EFI/BOOT/BOOTX64.EFI", options->build) != 0 ||
+         format(target, sizeof(target), "%s/esp/EFI/NeurOS/loader.efi", directory) != 0 ||
+         copy_file(source, target) != 0)) {
         goto cleanup;
     }
 
@@ -219,7 +232,55 @@ static int run_case(const struct options *options, const struct test_case *test)
         goto cleanup;
     }
 
-    if (test->payload != NULL) {
+    if (test->direct) {
+        if (format(target, sizeof(target), "%s/esp/EFI/NeurOS/vmlinuz", directory) != 0) {
+            goto cleanup;
+        }
+        if (test->direct == 1) {
+            FILE *stream = fopen(target, "wb");
+            if (!stream) {
+                goto cleanup;
+            }
+            int written = fputs("invalid Linux kernel", stream);
+            int closed = fclose(stream);
+            if (written == EOF || closed != 0) {
+                goto cleanup;
+            }
+            /* A valid UKI must not hide a present but invalid direct kernel. */
+            if (format(source, sizeof(source), "%s/test.efi", options->build) != 0 ||
+                format(target, sizeof(target), "%s/esp/EFI/Linux/arch-linux.efi", directory) != 0 ||
+                copy_file(source, target) != 0) {
+                goto cleanup;
+            }
+        } else if (copy_file(options->kernel, target) != 0) {
+            goto cleanup;
+        }
+        if (test->direct >= 3) {
+            if (format(target, sizeof(target), "%s/esp/EFI/NeurOS/cmdline.txt", directory) != 0) {
+                goto cleanup;
+            }
+            FILE *stream = fopen(target, "wb");
+            if (!stream) {
+                goto cleanup;
+            }
+            int written = fputs("console=ttyS0,115200 earlycon=uart,io,0x3f8 "
+                                "neuros_test=direct panic=-1\n", stream);
+            int closed = fclose(stream);
+            if (written == EOF || closed != 0 ||
+                format(target, sizeof(target), "%s/esp/EFI/NeurOS/initrd", directory) != 0) {
+                goto cleanup;
+            }
+            if (test->direct == 4) {
+                stream = fopen(target, "wb");
+                if (!stream || fclose(stream) != 0) {
+                    goto cleanup;
+                }
+            } else if (format(source, sizeof(source), "%s/test-initramfs.cpio", options->build) != 0 ||
+                       copy_file(source, target) != 0) {
+                goto cleanup;
+            }
+        }
+    } else if (test->payload != NULL) {
         if (format(source, sizeof(source), "%s/%s", options->build, test->payload) != 0 ||
             copy_file(source, target) != 0) {
             goto cleanup;
@@ -258,7 +319,7 @@ static int run_case(const struct options *options, const struct test_case *test)
         goto cleanup;
     }
 
-    deadline = current + 30.0;
+    deadline = current + (test->direct >= 3 && test->direct != 4 ? 90.0 : 30.0);
     child = fork();
 
     if (child < 0) {
@@ -283,7 +344,8 @@ static int run_case(const struct options *options, const struct test_case *test)
             close(error_fd);
         }
 
-        execlp(options->qemu, options->qemu, "-accel", "tcg", "-m", "256", "-display", "none",
+        execlp(options->qemu, options->qemu, "-accel", "tcg", "-cpu", "max",
+               "-machine", options->machine, "-m", options->memory, "-display", "none",
                "-monitor", "none", "-net", "none", "-no-reboot", "-drive", firmware_drive, "-drive",
                vars_drive, "-drive", esp_drive, "-serial", serial, (char *)NULL);
         perror(options->qemu);
@@ -309,6 +371,12 @@ static int run_case(const struct options *options, const struct test_case *test)
             printf("%s: passed\n", test->name);
             fflush(stdout);
             result = 0;
+            break;
+        }
+        if (test->direct && (strstr(output, "NEUROS: test child reached") ||
+                             strstr(output, "Kernel panic") ||
+                             strstr(output, "NEUROS: init verification failed"))) {
+            fprintf(stderr, "%s: unexpected fallback or kernel failure\n%s\n", test->name, output);
             break;
         }
 
@@ -354,18 +422,31 @@ cleanup:
 
 int main(int argc, char **argv)
 {
-    struct options options = {0};
+    struct options options = {.machine = "pc", .memory = "512"};
     struct sigaction action = {0};
 
     const struct test_case cases[] = {
         {"child success",
          "test.efi",
-         {"NEUROS: test child reached", "StartImage: Success", "[Enter] Retry Arch"}},
+         {"NEUROS: test child reached", "StartImage: Success", "[Enter] Retry Arch"}, 0},
         {"child error",
          "error.efi",
-         {"NEUROS: test child reached", "StartImage: Aborted", "[Enter] Retry Arch"}},
-        {"missing UKI", NULL, {"LoadImage: Not Found", "[Enter] Retry Arch", "RECOVERY"}},
-        {"invalid UKI", NULL, {"LoadImage:", "[Enter] Retry Arch", "RECOVERY"}}};
+         {"NEUROS: test child reached", "StartImage: Aborted", "[Enter] Retry Arch"}, 0},
+        {"missing UKI", NULL, {"LoadImage: Not Found", "[Enter] Retry Arch", "RECOVERY"}, 0},
+        {"invalid UKI", NULL, {"LoadImage:", "[Enter] Retry Arch", "RECOVERY"}, 0},
+        {"invalid direct kernel", NULL, {"Linux header: Load Error", "RECOVERY", NULL}, 1}};
+    const struct test_case linux_cases[] = {
+        {"missing direct cmdline", NULL, {"Linux cmdline.txt: Not Found", "RECOVERY", NULL}, 2},
+        {"empty direct initrd", NULL, {"Linux initrd: Load Error", "RECOVERY", NULL}, 4},
+        {"direct Linux boot", NULL,
+         {NULL, "NEUROS: direct Linux init reached",
+          "NEUROS: initramfs and command line verified"}, 3},
+        {"direct Linux exit retry", NULL,
+         {"NEUROS: stale map key rejected", "NEUROS: ExitBootServices retry succeeded",
+          "NEUROS: initramfs and command line verified"}, 5},
+        {"large firmware map", NULL,
+         {"NEUROS: stale map key rejected", "NEUROS: ExitBootServices retry succeeded",
+          "NEUROS: initramfs and command line verified"}, 6}};
 
     for (int i = 1; i < argc; i += 2) {
         if (i + 1 >= argc) {
@@ -380,6 +461,12 @@ int main(int argc, char **argv)
             options.firmware = argv[i + 1];
         } else if (strcmp(argv[i], "--vars") == 0) {
             options.vars = argv[i + 1];
+        } else if (strcmp(argv[i], "--machine") == 0) {
+            options.machine = argv[i + 1];
+        } else if (strcmp(argv[i], "--memory") == 0) {
+            options.memory = argv[i + 1];
+        } else if (strcmp(argv[i], "--kernel") == 0) {
+            options.kernel = argv[i + 1];
         } else {
             goto usage;
         }
@@ -404,8 +491,15 @@ int main(int argc, char **argv)
         }
     }
 
+    if (options.kernel) {
+        for (size_t i = 0; i < sizeof(linux_cases) / sizeof(linux_cases[0]); ++i) {
+            if (interrupted || run_case(&options, &linux_cases[i]) != 0) {
+                return (interrupted ? 128 + interrupted : 1);
+            }
+        }
+    }
     return (0);
 usage:
-    fprintf(stderr, "Usage: %s --build DIR --qemu PROGRAM --firmware FILE --vars FILE\n", argv[0]);
+    fprintf(stderr, "Usage: %s --build DIR --qemu PROGRAM --firmware FILE --vars FILE [--kernel FILE] [--machine pc|q35] [--memory MiB]\n", argv[0]);
     return (2);
 }

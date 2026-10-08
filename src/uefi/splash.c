@@ -129,7 +129,9 @@ EFI_STATUS show_splash(VOID)
     left = (screen_width - width) / 2;
     top = (screen_height - height) / 2;
 
-    uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, FALSE);
+    if (ST->ConOut && ST->ConOut->Mode) {
+        uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, FALSE);
+    }
     uefi_call_wrapper(gop->Blt, 10, gop, &black, EfiBltVideoFill, 0, 0, 0, 0, screen_width,
                       screen_height, 0);
 
