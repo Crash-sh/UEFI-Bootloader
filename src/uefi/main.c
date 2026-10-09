@@ -26,7 +26,6 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
     EFI_STATUS status;
     EFI_INPUT_KEY key;
     CHAR16 *path = UKI_PATH;
-    EFI_STATUS splash_status;
     CHAR16 *operation;
     BOOLEAN cursor;
     UINTN attribute;
@@ -39,11 +38,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system)
     uefi_call_wrapper(BS->SetWatchdogTimer, 4, 0, 0, 0, NULL);
 
     for (;;) {
-        splash_status = show_splash(&recovery);
-        if (EFI_ERROR(splash_status)) {
-            show_boot_fallback(splash_status);
-            uefi_call_wrapper(BS->Stall, 1, 2000000);
-        }
+        show_splash(&recovery);
 
         if (recovery) {
             operation = L"Boot paused by user";

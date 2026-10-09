@@ -168,6 +168,10 @@ With Secure Boot off, the loader can use versioned direct Linux sets, legacy fla
 
 Press **M** during the splash to stop before launching a kernel.
 
+If graphics are unavailable or the splash fails, **M** remains available during
+a two-second input window before boot. A working firmware keyboard/input console
+is required; the fallback prompt appears when firmware text output is available.
+
 | Recovery key | Action |
 |---|---|
 | Enter | Retry the default boot path |

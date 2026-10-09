@@ -55,6 +55,9 @@ $(BUILD)/grow_map.o: $(SOURCE)/tests/exit_retry.c | check-deps $(BUILD)
 $(BUILD)/recovery.o: $(SOURCE)/tests/recovery.c | check-deps $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c "$<" -o "$@"
 
+$(BUILD)/recovery_no_graphics.o: $(SOURCE)/tests/recovery.c | check-deps $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DTEST_NO_GRAPHICS -MMD -MP -c "$<" -o "$@"
+
 $(BUILD)/handoff.o: $(SOURCE)/uefi/handoff.S | $(BUILD)
 	$(CC) -c "$<" -o "$@"
 
@@ -72,9 +75,17 @@ $(BUILD)/%.efi: $(BUILD)/%.so
 	mkdir -p "$(@D)"
 	$(OBJCOPY) $(EFI_SECTIONS) -O efi-app-x86_64 "$<" "$@"
 
-check: all check-tools check-linux $(BUILD)/test.efi $(BUILD)/error.efi
+check: all check-tools check-linux check-splash $(BUILD)/test.efi $(BUILD)/error.efi
 	objdump -p "$(ESP)/EFI/BOOT/BOOTX64.EFI" | grep 'EFI application'
 	objdump -p "$(BUILD)/test.efi" | grep 'EFI application'
+
+.PHONY: check-splash
+
+$(BUILD)/splash-tests: $(SOURCE)/tests/splash.c $(SOURCE)/uefi/splash.c $(SOURCE)/uefi/loader.h $(SOURCE)/uefi/splash_effect.h $(BUILD)/logo.o
+	$(HOSTCC) $(HOSTCFLAGS) $(CPPFLAGS) -fshort-wchar "$<" "$(SOURCE)/uefi/splash.c" "$(BUILD)/logo.o" -o "$@"
+
+check-splash: $(BUILD)/splash-tests
+	"$(BUILD)/splash-tests"
 
 $(BUILD)/OVMF_VARS.fd: | $(BUILD)
 	cp "$(OVMF_VARS)" "$@"
@@ -107,7 +118,7 @@ $(BUILD)/make-initramfs: $(SOURCE)/tests/initramfs.c | $(BUILD)
 $(BUILD)/test-initramfs.cpio: $(BUILD)/test-init $(BUILD)/make-initramfs
 	"$(BUILD)/make-initramfs" "$<" "$@"
 
-test-linux: check $(BUILD)/boot-tests $(BUILD)/test-initramfs.cpio $(BUILD)/exit_retry.efi $(BUILD)/large_map.efi $(BUILD)/grow_map.efi $(BUILD)/recovery.efi
+test-linux: check $(BUILD)/boot-tests $(BUILD)/test-initramfs.cpio $(BUILD)/exit_retry.efi $(BUILD)/large_map.efi $(BUILD)/grow_map.efi $(BUILD)/recovery.efi $(BUILD)/recovery_no_graphics.efi
 	@test -n "$(KERNEL)" || { echo 'Usage: make test-linux KERNEL=/path/to/vmlinuz'; exit 1; }
 	"$(BUILD)/boot-tests" --build "$(BUILD)" --qemu "$(QEMU)" --firmware "$(OVMF_CODE)" --vars "$(OVMF_VARS)" --kernel "$(KERNEL)"
 

@@ -24,28 +24,28 @@ static void kernel_fixture(const char *path)
 static void uki_fixture(const char *path, unsigned char marker)
 {
     unsigned char data[1024] = {0};
-    
+
     const char *names[] = {".linux", ".initrd", ".cmdline", ".osrel"};
-    
+
     memcpy(data, "MZ", 2);
     memcpy(data + 64, "PE\0\0", 4);
-    
+
     put_le(data + 60, 64, 4);
     put_le(data + 68, 0x8664, 2);
     put_le(data + 70, 4, 2);
     put_le(data + 84, 240, 2);
     put_le(data + 88, 0x20b, 2);
     put_le(data + 156, 10, 2);
-    
+
     for (size_t i = 0; i < 4; ++i) {
         unsigned char *section = data + 328 + 40 * i;
         memcpy(section, names[i], strlen(names[i]));
         put_le(section + 16, 1, 4);
         put_le(section + 20, 512 + i, 4);
     }
-    
+
     data[900] = marker;
-    
+
     write_bytes(path, data, sizeof(data));
 }
 
@@ -54,29 +54,29 @@ static void uki_fixture(const char *path, unsigned char marker)
 static int interrupted_stage(int argc, char **argv)
 {
     CHECK(argc == 5);
-    
+
     const char *real = getenv("NEUROS_TEST_STAGE");
     const char *marker = getenv("NEUROS_TEST_MARKER");
-    
+
     CHECK(real && marker);
-    
+
     pid_t child = fork();
-    
+
     CHECK(child >= 0);
-    
+
     if (!child) {
         argv[0] = (char *)real;
         execv(real, argv);
         _exit(127);
     }
-    
+
     int status;
-    
+
     CHECK(waitpid(child, &status, 0) == child);
     CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-    
+
     write_text(marker, "copied");
-    
+
     for (;;) {
         pause();
     }
@@ -85,7 +85,7 @@ static int interrupted_stage(int argc, char **argv)
 int main(int argc, char **argv)
 {
     const char *base = strrchr(argv[0], '/');
-    
+
     if (strcmp(base ? base + 1 : argv[0], "stage-linux") == 0) {
         return(interrupted_stage(argc, argv));
     }

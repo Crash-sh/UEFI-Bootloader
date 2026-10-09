@@ -36,7 +36,7 @@ VOID show_boot_fallback(EFI_STATUS status)
     set_color(UI_MUTED);
     Print(L"  Splash unavailable: %r\r\n\r\n", status);
     set_color(UI_TEXT);
-    Print(L"  Starting the boot image...\r\n");
+    Print(L"  Starting the boot image... Press M for recovery.\r\n");
 }
 
 VOID show_recovery(CHAR16 *path, CHAR16 *operation, EFI_STATUS status)

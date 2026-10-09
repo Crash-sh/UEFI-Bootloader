@@ -8,10 +8,10 @@ extern const UINT8 _binary_neuros_bmp_end[];
 
 static UINT32 little32(const UINT8 *p)
 {
-    return ((UINT32)p[0] | (UINT32)p[1] << 8 | (UINT32)p[2] << 16 | (UINT32)p[3] << 24);
+    return((UINT32)p[0] | (UINT32)p[1] << 8 | (UINT32)p[2] << 16 | (UINT32)p[3] << 24);
 }
 
-EFI_STATUS show_splash(BOOLEAN *recovery)
+static EFI_STATUS graphics_splash(BOOLEAN *recovery)
 {
     EFI_GUID guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
     EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
@@ -34,24 +34,24 @@ EFI_STATUS show_splash(BOOLEAN *recovery)
     }
 
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
     }
     if (gop->Mode == NULL || gop->Mode->Info == NULL) {
-        return (EFI_UNSUPPORTED);
+        return(EFI_UNSUPPORTED);
     }
 
     screen_width = gop->Mode->Info->HorizontalResolution;
     screen_height = gop->Mode->Info->VerticalResolution;
 
     if (screen_width < 80 || screen_height < 80) {
-        return (EFI_UNSUPPORTED);
+        return(EFI_UNSUPPORTED);
     }
 
     size = (UINTN)(_binary_neuros_bmp_end - _binary_neuros_bmp_start);
 
     if (size < 54 || bmp[0] != 'B' || bmp[1] != 'M' || bmp[28] != 24 || bmp[29] != 0 ||
         little32(bmp + 30) != 0) {
-        return (EFI_UNSUPPORTED);
+        return(EFI_UNSUPPORTED);
     }
 
     offset = little32(bmp + 10);
@@ -60,13 +60,13 @@ EFI_STATUS show_splash(BOOLEAN *recovery)
     source_height = little32(bmp + 22);
 
     if (!source_width || !source_height || source_width > 4096 || source_height > 4096) {
-        return (EFI_UNSUPPORTED);
+        return(EFI_UNSUPPORTED);
     }
 
     stride = (source_width * 3 + 3) & ~(UINTN)3;
 
     if (offset > size || source_height * stride > size - offset) {
-        return (EFI_UNSUPPORTED);
+        return(EFI_UNSUPPORTED);
     }
 
     width = screen_width - 40;
@@ -83,7 +83,7 @@ EFI_STATUS show_splash(BOOLEAN *recovery)
     }
 
     if (!width || !height) {
-        return (EFI_UNSUPPORTED);
+        return(EFI_UNSUPPORTED);
     }
 
     base = AllocatePool(width * height * sizeof(*base));
@@ -121,8 +121,6 @@ EFI_STATUS show_splash(BOOLEAN *recovery)
     }
 
     if (ST->ConIn != NULL) {
-        /* Discard the menu-selection key before accepting splash input. */
-        uefi_call_wrapper(ST->ConIn->Reset, 2, ST->ConIn, FALSE);
         events[1] = ST->ConIn->WaitForKey;
         count = 2;
     }
@@ -181,5 +179,42 @@ release:
     if (base != NULL) {
         FreePool(base);
     }
-    return (status);
+    return(status);
+}
+
+EFI_STATUS show_splash(BOOLEAN *recovery)
+{
+    EFI_STATUS status;
+    EFI_INPUT_KEY key;
+
+    *recovery = FALSE;
+    if (ST->ConIn != NULL) {
+        /* Discard the caller's menu-selection key on either display path. */
+        uefi_call_wrapper(ST->ConIn->Reset, 2, ST->ConIn, FALSE);
+    }
+    status = graphics_splash(recovery);
+    if (!EFI_ERROR(status) || *recovery) {
+        return(status);
+    }
+
+    show_boot_fallback(status);
+    /* Poll for a bounded two seconds even if graphics or timer events failed.
+     * Do not reset input here: M may already be queued during graphics setup. */
+    for (UINTN tick = 0; tick < 100; ++tick) {
+        if (ST->ConIn != NULL) {
+            EFI_STATUS input_status =
+                uefi_call_wrapper(ST->ConIn->ReadKeyStroke, 2, ST->ConIn, &key);
+            if (!EFI_ERROR(input_status) && (key.UnicodeChar == L'm' || key.UnicodeChar == L'M')) {
+                *recovery = TRUE;
+                break;
+            }
+            if (EFI_ERROR(input_status) && input_status != EFI_NOT_READY) {
+                break;
+            }
+        }
+        if (EFI_ERROR(uefi_call_wrapper(BS->Stall, 1, 20000))) {
+            break;
+        }
+    }
+    return(status);
 }

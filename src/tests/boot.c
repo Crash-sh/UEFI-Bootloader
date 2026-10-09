@@ -216,7 +216,8 @@ static int run_case(const struct options *options, const struct test_case *test)
     }
 
     if (format(source, sizeof(source), "%s/%s", options->build,
-               test->direct == 9   ? "recovery.efi"
+               test->direct == 12  ? "recovery_no_graphics.efi"
+               : test->direct == 9 ? "recovery.efi"
                : test->direct == 7 ? "grow_map.efi"
                : test->direct == 6 ? "large_map.efi"
                : test->direct == 5 ? "exit_retry.efi"
@@ -226,7 +227,8 @@ static int run_case(const struct options *options, const struct test_case *test)
         goto cleanup;
     }
 
-    if ((test->direct == 5 || test->direct == 6 || test->direct == 7 || test->direct == 9) &&
+    if ((test->direct == 5 || test->direct == 6 || test->direct == 7 || test->direct == 9 ||
+         test->direct == 12) &&
         (format(source, sizeof(source), "%s/esp/EFI/BOOT/BOOTX64.EFI", options->build) != 0 ||
          format(target, sizeof(target), "%s/esp/EFI/NeurOS/loader.efi", directory) != 0 ||
          copy_file(source, target) != 0)) {
@@ -340,7 +342,7 @@ static int run_case(const struct options *options, const struct test_case *test)
         if (written == EOF || closed != 0) {
             goto cleanup;
         }
-        if (test->direct == 9) {
+        if (test->direct == 9 || test->direct == 12) {
             if (format(target, sizeof(target), "%s/esp/EFI/NeurOS/set-abcdef/vmlinuz", directory) !=
                 0) {
                 goto cleanup;
@@ -543,6 +545,11 @@ int main(int argc, char **argv)
          {"Boot paused by user", "NEUROS: direct Linux init reached",
           "NEUROS: initramfs and command line verified"},
          9},
+        {"recovery without graphics to previous Linux",
+         NULL,
+         {"Splash unavailable: Not Found", "Boot paused by user",
+          "NEUROS: initramfs and command line verified"},
+         12},
         {"missing managed initrd", NULL, {"Linux initrd: Not Found", "RECOVERY", NULL}, 10},
         {"invalid boot selection",
          NULL,

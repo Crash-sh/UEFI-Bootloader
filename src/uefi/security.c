@@ -11,14 +11,14 @@ EFI_STATUS secure_boot_state(BOOLEAN *enabled)
     if (status == EFI_NOT_FOUND) {
         /* Pre-Secure-Boot firmware. */
         *enabled = FALSE;
-        return (EFI_SUCCESS);
+        return(EFI_SUCCESS);
     }
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
     }
     if (size != sizeof(value) || value > 1) {
-        return (EFI_SECURITY_VIOLATION);
+        return(EFI_SECURITY_VIOLATION);
     }
     *enabled = value != 0;
-    return (EFI_SUCCESS);
+    return(EFI_SUCCESS);
 }

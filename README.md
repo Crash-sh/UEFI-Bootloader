@@ -71,7 +71,7 @@ All test runners are C. `make check-tools` exercises native tools and interrupte
 
 ### `crash@nsd:~$ cat recovery.keys`
 
-During the splash, **Enter** or **Esc** skips the animation after a short input guard. **M** opens recovery before the kernel launches. The logo stays until handoff; Linux owns the display after that. A graphics failure shows its status for two seconds before continuing.
+During the splash, **Enter** or **Esc** skips the animation after a short input guard. **M** opens recovery before the kernel launches. The logo stays until handoff; Linux owns the display after that. A graphics failure leaves a two-second window to press **M** through firmware input before continuing, with a status prompt when text output is available.
 
 | Recovery key | What the machine does |
 |---|---|

@@ -13,12 +13,12 @@ EFI_STATUS load_image(EFI_HANDLE parent, CHAR16 *path, CHAR16 **operation)
     status =
         uefi_call_wrapper(BS->HandleProtocol, 3, parent, &LoadedImageProtocol, (VOID **)&loaded);
     if (EFI_ERROR(status)) {
-        return (status);
+        return(status);
     }
     *operation = L"FileDevicePath";
     device_path = FileDevicePath(loaded->DeviceHandle, path);
     if (device_path == NULL) {
-        return (EFI_OUT_OF_RESOURCES);
+        return(EFI_OUT_OF_RESOURCES);
     }
 
     *operation = L"LoadImage";
@@ -31,7 +31,7 @@ EFI_STATUS load_image(EFI_HANDLE parent, CHAR16 *path, CHAR16 **operation)
             uefi_call_wrapper(BS->UnloadImage, 1, child);
         }
 
-        return (status);
+        return(status);
     }
 
     *operation = L"StartImage";
@@ -41,5 +41,5 @@ EFI_STATUS load_image(EFI_HANDLE parent, CHAR16 *path, CHAR16 **operation)
         FreePool(exit_data);
     }
 
-    return (status);
+    return(status);
 }

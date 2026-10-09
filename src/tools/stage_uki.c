@@ -14,10 +14,10 @@ int main(int argc, char **argv)
 {
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "Usage: %s SOURCE [DESTINATION]\n", argv[0]);
-        return (2);
+        return(2);
     }
     if (validate_image(argv[1], 1) != 0) {
-        return (1);
+        return(1);
     }
 
     if (argc == 3) {
@@ -25,7 +25,7 @@ int main(int argc, char **argv)
         struct stat info;
         if (strlen(argv[2]) >= sizeof(parent) || make_parents(argv[2]) != 0 ||
             snprintf(previous, sizeof(previous), "%s.previous", argv[2]) >= (int)sizeof(previous)) {
-            return (1);
+            return(1);
         }
         strcpy(parent, argv[2]);
         char *slash = strrchr(parent, '/');
@@ -39,42 +39,42 @@ int main(int argc, char **argv)
         int directory = open(parent, O_RDONLY | O_DIRECTORY);
         if (directory < 0 || flock(directory, LOCK_EX | LOCK_NB) != 0) {
             perror("Cannot lock UKI directory");
-            return (1);
+            return(1);
         }
         if (path_join(staged, sizeof(staged), parent, ".uki-XXXXXX") != 0) {
-            return (1);
+            return(1);
         }
         int snapshot = mkstemp(staged);
         if (snapshot < 0) {
             perror("UKI snapshot");
-            return (1);
+            return(1);
         }
         close(snapshot);
         /* Validate the exact snapshot that will become active. */
         if (copy_image(argv[1], staged, 0) != 0 || validate_image(staged, 1) != 0) {
             unlink(staged);
-            return (1);
+            return(1);
         }
         if (lstat(argv[2], &info) == 0) {
             if (!S_ISREG(info.st_mode) || validate_image(argv[2], 1) != 0 ||
                 copy_image(argv[2], previous, 0) != 0) {
                 unlink(staged);
-                return (1);
+                return(1);
             }
         } else if (errno != ENOENT) {
             unlink(staged);
-            return (1);
+            return(1);
         }
         if (rename(staged, argv[2]) != 0) {
             unlink(staged);
-            return (1);
+            return(1);
         }
         if (fsync(directory) != 0) {
             fprintf(stderr, "UKI published but directory sync failed.\n");
-            return (1);
+            return(1);
         }
         close(directory);
     }
     puts("UKI structure validated; signatures and boot configuration are not verified.");
-    return (0);
+    return(0);
 }

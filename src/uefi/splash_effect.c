@@ -5,7 +5,7 @@ static UINT32 noise(UINT32 value)
     value ^= value >> 16;
     value *= 0x7feb352dU;
     value ^= value >> 15;
-    return (value);
+    return(value);
 }
 
 static EFI_GRAPHICS_OUTPUT_BLT_PIXEL sample(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL *base, UINTN width,
@@ -14,16 +14,16 @@ static EFI_GRAPHICS_OUTPUT_BLT_PIXEL sample(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL 
     EFI_GRAPHICS_OUTPUT_BLT_PIXEL black = {0, 0, 0, 0};
 
     if (x < 0 || (UINTN)x >= width) {
-        return (black);
+        return(black);
     }
-    return (base[y * width + (UINTN)x]);
+    return(base[y * width + (UINTN)x]);
 }
 
 static UINT8 brightest(EFI_GRAPHICS_OUTPUT_BLT_PIXEL pixel)
 {
     UINT8 level = pixel.Red > pixel.Green ? pixel.Red : pixel.Green;
 
-    return (level > pixel.Blue ? level : pixel.Blue);
+    return(level > pixel.Blue ? level : pixel.Blue);
 }
 
 static EFI_GRAPHICS_OUTPUT_BLT_PIXEL tint(EFI_GRAPHICS_OUTPUT_BLT_PIXEL pixel, BOOLEAN hot)
@@ -39,7 +39,7 @@ static EFI_GRAPHICS_OUTPUT_BLT_PIXEL tint(EFI_GRAPHICS_OUTPUT_BLT_PIXEL pixel, B
         pixel.Green = level * 3 / 4;
         pixel.Blue = level;
     }
-    return (pixel);
+    return(pixel);
 }
 
 VOID render_splash_frame(const EFI_GRAPHICS_OUTPUT_BLT_PIXEL *base,
