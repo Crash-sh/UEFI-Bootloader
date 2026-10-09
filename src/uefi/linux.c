@@ -178,7 +178,7 @@ static VOID platform_info(struct boot_params *params)
         status = uefi_call_wrapper(BS->LocateProtocol, 3, &graphics, NULL, (VOID **)&gop);
     }
     if (EFI_ERROR(status) || !gop->Mode || !gop->Mode->Info) {
-        return
+        return;
     }
     info = gop->Mode->Info;
     UINT32 masks[4];
@@ -198,7 +198,7 @@ static VOID platform_info(struct boot_params *params)
         masks[2] = info->PixelInformation.BlueMask;
         masks[3] = info->PixelInformation.ReservedMask;
     } else {
-        return
+        return;
     }
     /* Never switch modes or touch pixels here: retain the completed splash. */
     linux_framebuffer(screen, gop->Mode->FrameBufferBase, gop->Mode->FrameBufferSize,
@@ -224,7 +224,7 @@ static EFI_STATUS memory_info(struct boot_params *params, VOID *map, UINTN size,
     return(EFI_SUCCESS);
 }
 
-static VOID __attribute__((noreturn) stop_after_exit(VOID)
+static VOID __attribute__((noreturn)) stop_after_exit(VOID)
 {
     /* Even a failed first ExitBootServices can partially shut down firmware.
      * Never returnto the recovery UI or call console/file protocols here. */
