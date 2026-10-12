@@ -1,6 +1,6 @@
 # `crash@nsd:~$ ./neuros`
 
-![NeurOS animated boot splash](assets/neuros-splash.gif)
+![NeurOS animated boot splash](assets/neuros-splash-purple.gif)
 
 ```text
 [ NSD / HARDWARE & ARCHITECTURE ]
